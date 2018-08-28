@@ -1,0 +1,151 @@
+<html>
+<head>
+	<style>
+.bar {
+	margin: 1rem 0;
+	height: 7px;
+	width: 7px;
+	border-radius: 1rem;
+	background-color: #27ae60;
+}
+
+.bar.red {
+	background-color: #e74c3c;
+}
+	</style>
+<body>
+	<h1>Motion Tracking</h1>
+	<p>Flick your cursor or finger to the left or the right. The bar will continue with the same velocity towards a goal of 1000px width or 0px depending on direction. It will always take the same amount of time, which means
+	it may overshoot. A future version will determine how much time it should spend to finish the animation.</p>
+
+	<div class="bar" id="bar"></div>
+
+	<p>It uses a cubic bezier spline to calculate positions along a curve, given the time passed (when t = 0.5s, get the position 50% through the curve.) The bezier is built when the cursor is released using the velocity that's tracked while the cursor is being flung.</p>
+
+	<p>Notes</p>
+	<ul>
+		<li>The mouse move event sometimes generates 0-length motion, so there's a function to take position/time pairs and average the velocity over the past 50ms.</li>
+	</ul>
+
+	<script>
+var bar = document.getElementById('bar');
+var pressed = false;
+var interval = null;
+
+var Bezier = function(p0, p1, p2, p3){
+	this.p0 = p0;
+	this.p1 = p1;
+	this.p2 = p2;
+	this.p3 = p3;
+
+	this.interpolate = function(t1){
+		var t2 = t1 * t1,
+			t3 = t1 * t1 * t1,
+
+			m1 = (1 - t1),
+			m2 = m1 * m1,
+			m3 = m1 * m1 * m1;
+
+		return (m3 * this.p0) + (3 * t1 * m2 * this.p1) + (3 * t2 * m1 * this.p2) + (t3 * this.p3);
+	};
+
+	this.rebuild = function(p0, p1, p2, p3){
+		this.p0 = p0;
+		this.p1 = p1;
+		this.p2 = p2;
+		this.p3 = p3;
+	};
+};
+
+var PositionTracker = function(){
+	this.positions = [];
+
+	this.push = function(x, time){
+		this.positions.push({
+			time: time,
+			x: x
+		});
+	};
+
+	this.pop = function(){
+		cutoff = new Date().getTime() - 100;
+		var found = false;
+		for (var i = 0; i < this.positions.length && !found; i++){
+			if (this.positions[i].time > cutoff){
+				found = true;
+				break;
+			}
+		}
+
+		if (found && i > 0){
+			this.positions = this.positions.slice(i);
+		}
+	};
+
+	this.get_velocity = function(){
+		if (this.positions.length < 2){
+			return 0;
+		}
+		var first = this.positions[0];
+		var last = this.positions[this.positions.length - 1];
+
+		if (Math.abs(first.time - last.time) < 50){
+			return 0;
+		} else {
+			return (last.x - first.x) / (last.time - first.time);
+		}
+	}
+}
+
+var tracking = new PositionTracker();
+var bezier = new Bezier(0, 0, 500, 1000);
+
+document.onmousemove = function(event){
+
+	tracking.push(event.offsetX, new Date().getTime());
+	tracking.pop();
+
+	if (pressed){	
+		bar.style.width = (event.offsetX - bar.getBoundingClientRect().left) + 'px'
+	}
+};
+
+document.onmousedown = function(event){
+	pressed = true;
+	bar.style.width = (event.offsetX - bar.getBoundingClientRect().left) + 'px'
+	if (interval){
+		clearInterval(interval);
+	}
+}
+
+document.onmouseup = function(event){
+	pressed = false;
+	start_time = new Date().getTime();
+
+	var velocity = tracking.get_velocity() * 1000;
+	if (velocity >= 0){
+		bezier.rebuild(event.offsetX, event.offsetX + velocity, 1000, 1000);
+	} else {
+		bezier.rebuild(event.offsetX, event.offsetX + velocity, 0, 0);
+	}
+
+	interval = setInterval(() => {
+		var t = new Date().getTime();
+		if ((t-start_time) >= 2000){
+			clearInterval(interval);
+			width = bezier.interpolate(1);
+		} else {
+			width = bezier.interpolate(((t - start_time) % 2000) / 2000);
+		}
+
+		if (width < 0){
+			width = 0;
+		}
+
+		bar.style.width = width + 'px';
+	}, 10);
+}
+
+	</script>
+</body>
+</html>
